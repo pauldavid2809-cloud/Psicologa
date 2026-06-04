@@ -12,7 +12,7 @@ let state = {
     activeTab: 'paul-dashboard', // default tab
     records: [],
     tasks: [],
-    dailyChecklist: { date: '', completedHabits: [] }
+    dailyActivities: []
 };
 
 // Global chart instances
@@ -277,7 +277,7 @@ async function navigateToTab(tabId) {
 
     // Custom tab trigger renders
     if (tabId === 'paul-dashboard') {
-        await syncTodayChecklist();
+        await syncTodayActivities();
         renderPaulDashboard();
     } else if (tabId === 'paul-history') {
         renderPaulHistory();
@@ -386,8 +386,8 @@ function renderPaulDashboard() {
     // 3. Render mini tasks checklist
     renderPaulMiniTasks();
 
-    // Render daily checklist
-    renderDailyChecklist();
+    // Render daily activities
+    renderDailyActivities();
 
     // 4. Render Evolution Chart
     renderChart('chart-paul-evolution', 'paul');
@@ -1412,15 +1412,7 @@ function formatDateTimeString(dateTimeStr) {
     return `${dd}/${mm}/${yyyy} a las ${hh}:${min} hs`;
 }
 
-// --- DAILY CHECKLIST LOGIC ---
-
-const HABITS_LIST = [
-    { id: 'meds', label: 'Tomar medicación indicada', icon: 'pill' },
-    { id: 'breathing', label: 'Ejercicio de respiración / Relajación', icon: 'wind' },
-    { id: 'registry', label: 'Registrar al menos un pensamiento automático', icon: 'clipboard-signature' },
-    { id: 'exercise', label: 'Caminar 30 min / Ejercicio físico', icon: 'footprints' },
-    { id: 'selfcare', label: '15 minutos de autocuidado / Ocio', icon: 'heart' }
-];
+// --- DAILY ACTIVITIES LOGIC ---
 
 function getTodayLocalDateStr() {
     const now = new Date();
@@ -1430,87 +1422,145 @@ function getTodayLocalDateStr() {
     return `${yyyy}-${mm}-${dd}`;
 }
 
-async function syncTodayChecklist() {
+async function syncTodayActivities() {
     const todayStr = getTodayLocalDateStr();
-    state.dailyChecklist = { date: todayStr, completedHabits: [] };
+    state.dailyActivities = [];
 
     if (!supabaseClient) return;
 
     try {
         const { data, error } = await supabaseClient
-            .from('daily_checklist')
+            .from('daily_activities')
             .select('*')
             .eq('date', todayStr);
 
         if (error) throw error;
 
-        if (data && data.length > 0) {
-            state.dailyChecklist.completedHabits = data[0].completed_habits || [];
+        if (data) {
+            state.dailyActivities = data;
         }
     } catch (err) {
-        console.error("Error sincronizando checklist diario:", err);
+        console.error("Error sincronizando actividades diarias:", err);
     }
 }
 
-async function toggleHabit(habitId, isChecked) {
+async function handleAddDailyActivity(e) {
+    e.preventDefault();
+    const input = document.getElementById("daily-activity-input");
+    if (!input) return;
+    const content = input.value.trim();
+    if (!content) return;
+
     const todayStr = getTodayLocalDateStr();
-    let completed = [...state.dailyChecklist.completedHabits];
+    const newActivity = {
+        id: "act-" + Date.now(),
+        date: todayStr,
+        content: content,
+        completed: false
+    };
 
-    if (isChecked) {
-        if (!completed.includes(habitId)) {
-            completed.push(habitId);
-        }
-    } else {
-        completed = completed.filter(id => id !== habitId);
-    }
+    // Guardar localmente inmediato para UX instantánea
+    state.dailyActivities.push(newActivity);
+    renderDailyActivities();
+    input.value = "";
 
-    state.dailyChecklist.completedHabits = completed;
-
-    // Actualizar base de datos
+    // Guardar en Supabase
     if (supabaseClient) {
         try {
             const { error } = await supabaseClient
-                .from('daily_checklist')
-                .upsert({
-                    id: `chk-${todayStr}`,
-                    date: todayStr,
-                    completed_habits: completed
-                }, { onConflict: 'date' });
+                .from('daily_activities')
+                .insert([newActivity]);
 
             if (error) throw error;
         } catch (err) {
-            console.error("Error guardando hábito en Supabase:", err);
+            console.error("Error guardando actividad en Supabase:", err);
+            alert("No se pudo guardar la actividad en la nube.");
         }
     }
+}
 
-    // Actualizar estilo visual inmediatamente
-    const itemDiv = document.getElementById(`habit-item-${habitId}`);
+async function toggleActivityState(id, completed) {
+    const activity = state.dailyActivities.find(a => a.id === id);
+    if (activity) {
+        activity.completed = completed;
+    }
+
+    // Estilo visual inmediato
+    const itemDiv = document.getElementById(`activity-item-${id}`);
     if (itemDiv) {
-        if (isChecked) {
+        if (completed) {
             itemDiv.classList.add('completed');
         } else {
             itemDiv.classList.remove('completed');
         }
     }
+
+    // Supabase update
+    if (supabaseClient) {
+        try {
+            const { error } = await supabaseClient
+                .from('daily_activities')
+                .update({ completed: completed })
+                .eq('id', id);
+
+            if (error) throw error;
+        } catch (err) {
+            console.error("Error actualizando estado de actividad:", err);
+        }
+    }
 }
 
-function renderDailyChecklist() {
-    const container = document.getElementById("daily-checklist-container");
+async function deleteDailyActivity(id) {
+    // Eliminar del estado local
+    state.dailyActivities = state.dailyActivities.filter(a => a.id !== id);
+    renderDailyActivities();
+
+    // Supabase delete
+    if (supabaseClient) {
+        try {
+            const { error } = await supabaseClient
+                .from('daily_activities')
+                .delete()
+                .eq('id', id);
+
+            if (error) throw error;
+        } catch (err) {
+            console.error("Error eliminando actividad de Supabase:", err);
+        }
+    }
+}
+
+function renderDailyActivities() {
+    const container = document.getElementById("daily-activities-container");
     if (!container) return;
     container.innerHTML = "";
 
-    HABITS_LIST.forEach(habit => {
-        const isChecked = state.dailyChecklist.completedHabits.includes(habit.id);
+    if (state.dailyActivities.length === 0) {
+        container.innerHTML = `
+            <div class="empty-state-mini" style="text-align: center; padding: 1rem; border: 1px dashed var(--border-color); border-radius: var(--radius-sm); width: 100%;">
+                <p style="font-size: 0.8rem; color: var(--text-muted); margin: 0;">No has registrado actividades hoy todavía. ¡Comienza agregando una arriba!</p>
+            </div>
+        `;
+        return;
+    }
+
+    state.dailyActivities.forEach(act => {
         const item = document.createElement("div");
-        item.id = `habit-item-${habit.id}`;
-        item.className = `daily-habit-item ${isChecked ? 'completed' : ''}`;
+        item.id = `activity-item-${act.id}`;
+        item.className = `daily-habit-item ${act.completed ? 'completed' : ''}`;
+        item.style.display = "flex";
+        item.style.alignItems = "center";
+        item.style.justifyContent = "space-between";
+        item.style.gap = "0.5rem";
 
         item.innerHTML = `
-            <label class="habit-checkbox-label">
-                <input type="checkbox" id="habit-chk-${habit.id}" 
-                    onchange="toggleHabit('${habit.id}', this.checked)" ${isChecked ? 'checked' : ''}>
-                <span><i data-lucide="${habit.icon}" style="width: 1rem; height: 1rem; vertical-align: text-bottom; margin-right: 0.25rem;"></i> ${habit.label}</span>
+            <label class="habit-checkbox-label" style="display: flex; align-items: center; gap: 0.75rem; cursor: pointer; flex-grow: 1;">
+                <input type="checkbox" onchange="toggleActivityState('${act.id}', this.checked)" ${act.completed ? 'checked' : ''}>
+                <span>${act.content}</span>
             </label>
+            <button onclick="deleteDailyActivity('${act.id}')" class="btn btn-text" style="color: var(--color-accent); padding: 0.25rem 0.5rem; background: transparent; border: none; cursor: pointer;" title="Eliminar">
+                <i data-lucide="trash-2" style="width: 0.9rem; height: 0.9rem;"></i>
+            </button>
         `;
         container.appendChild(item);
     });
