@@ -12,7 +12,8 @@ let state = {
     activeTab: 'paul-dashboard', // default tab
     records: [],
     tasks: [],
-    dailyActivities: []
+    dailyActivities: [],
+    paulTodayActivities: []
 };
 
 // Global chart instances
@@ -289,6 +290,7 @@ async function navigateToTab(tabId) {
     } else if (tabId === 'paul-tasks') {
         renderPaulTasks();
     } else if (tabId === 'emily-dashboard') {
+        await syncEmilyTodayActivities();
         renderEmilyDashboard();
     } else if (tabId === 'emily-records') {
         renderEmilyRecords();
@@ -924,6 +926,7 @@ function renderEmilyDashboard() {
 
     renderChart('chart-emily-evolution', 'emily');
     renderEmilyRecentRegistries();
+    renderEmilyTodayActivities();
 }
 
 // Assign and save new therapists tasks in Supabase
@@ -1676,6 +1679,65 @@ function renderEmilyRecentRegistries() {
             ${feedbackHTML}
         `;
         container.appendChild(itemDiv);
+    });
+
+    lucide.createIcons();
+}
+
+async function syncEmilyTodayActivities() {
+    const todayStr = getTodayLocalDateStr();
+    state.paulTodayActivities = [];
+
+    if (!supabaseClient) return;
+
+    try {
+        const { data, error } = await supabaseClient
+            .from('daily_activities')
+            .select('*')
+            .eq('date', todayStr);
+
+        if (error) throw error;
+
+        if (data) {
+            state.paulTodayActivities = data;
+        }
+    } catch (err) {
+        console.error("Error sincronizando actividades de Paul:", err);
+    }
+}
+
+function renderEmilyTodayActivities() {
+    const container = document.getElementById("emily-activities-container");
+    if (!container) return;
+    container.innerHTML = "";
+
+    if (state.paulTodayActivities.length === 0) {
+        container.innerHTML = `
+            <div class="empty-state-mini" style="text-align: center; padding: 1rem; border: 1px dashed var(--border-color); border-radius: var(--radius-sm); width: 100%;">
+                <p style="font-size: 0.8rem; color: var(--text-muted); margin: 0;">Paul no ha registrado actividades hoy todavía.</p>
+            </div>
+        `;
+        return;
+    }
+
+    state.paulTodayActivities.forEach(act => {
+        const item = document.createElement("div");
+        item.className = `daily-habit-item ${act.completed ? 'completed' : ''}`;
+        item.style.display = "flex";
+        item.style.alignItems = "center";
+        item.style.justifyContent = "space-between";
+        item.style.gap = "0.5rem";
+
+        item.innerHTML = `
+            <label class="habit-checkbox-label" style="display: flex; align-items: center; gap: 0.75rem; cursor: default; flex-grow: 1;">
+                <input type="checkbox" disabled ${act.completed ? 'checked' : ''}>
+                <span>${act.content}</span>
+            </label>
+            <span class="task-status-badge ${act.completed ? 'completed' : ''}" style="font-size: 0.7rem; padding: 0.15rem 0.35rem; white-space: nowrap;">
+                ${act.completed ? 'Hecho' : 'Pendiente'}
+            </span>
+        `;
+        container.appendChild(item);
     });
 
     lucide.createIcons();
