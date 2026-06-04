@@ -1,3 +1,11 @@
+// ==========================================
+// CONFIGURACIÓN DE TU PROYECTO DE SUPABASE
+// ==========================================
+// Reemplaza estos dos valores con los datos de tu proyecto en Supabase.
+// Puedes encontrarlos en: Settings -> API en tu panel de control de Supabase.
+const SUPABASE_URL = "TU_SUPABASE_URL";
+const SUPABASE_ANON_KEY = "TU_SUPABASE_ANON_KEY";
+
 // Global State variables
 let state = {
     activeRole: 'paul', // 'paul' or 'emily'
@@ -9,10 +17,22 @@ let state = {
 // Global chart instances
 let paulChartInstance = null;
 let emilyChartInstance = null;
-let selectedFileMetadata = null; // Temp holder for file uploads
+let selectedFileMetadata = null; // Temp holder for file upload previews
+let selectedRawFile = null; // Temp holder for the actual raw file object
+
+// Initialize Supabase Client
+let supabase = null;
+const isSupabaseConfigured = (SUPABASE_URL !== "TU_SUPABASE_URL" && SUPABASE_ANON_KEY !== "TU_SUPABASE_ANON_KEY");
+
+if (window.supabase && isSupabaseConfigured) {
+    supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+}
 
 // App Initialization
 document.addEventListener("DOMContentLoaded", async () => {
+    if (!isSupabaseConfigured) {
+        showConfigWarning();
+    }
     await initDatabase();
     setDefaultDateInput();
     renderNavigation();
@@ -20,7 +40,30 @@ document.addEventListener("DOMContentLoaded", async () => {
     lucide.createIcons();
 });
 
-// Sync data from Express Server API
+// Show config warning modal overlay if keys are placeholder values
+function showConfigWarning() {
+    const warningDiv = document.createElement("div");
+    warningDiv.style.position = "fixed";
+    warningDiv.style.top = "1.5rem";
+    warningDiv.style.left = "50%";
+    warningDiv.style.transform = "translateX(-50%)";
+    warningDiv.style.background = "#f59e0b";
+    warningDiv.style.color = "#0b0f19";
+    warningDiv.style.padding = "1rem 1.5rem";
+    warningDiv.style.borderRadius = "8px";
+    warningDiv.style.boxShadow = "0 8px 24px rgba(0,0,0,0.5)";
+    warningDiv.style.zIndex = "2000";
+    warningDiv.style.fontSize = "0.9rem";
+    warningDiv.style.fontWeight = "600";
+    warningDiv.style.textAlign = "center";
+    warningDiv.style.maxWidth = "90%";
+    warningDiv.innerHTML = `
+        <span>⚠️ Supabase no está configurado. Abre el archivo <code>app.js</code> e ingresa tus credenciales en las líneas 5 y 6 para poder guardar tus datos en la nube.</span>
+    `;
+    document.body.appendChild(warningDiv);
+}
+
+// Sync data from Supabase Cloud
 async function initDatabase() {
     // Load active role simulation preference from local storage
     const storedRole = localStorage.getItem("mindreg_active_role");
@@ -36,20 +79,54 @@ async function initDatabase() {
     // Sync UI view theme class
     updateThemeClass();
 
-    // Fetch data from server
-    try {
-        const recordsRes = await fetch('/api/records');
-        if (recordsRes.ok) {
-            state.records = await recordsRes.json();
-        }
+    if (!supabase) return;
 
-        const tasksRes = await fetch('/api/tasks');
-        if (tasksRes.ok) {
-            state.tasks = await tasksRes.json();
-        }
+    // Fetch data from Supabase
+    try {
+        // 1. Fetch records & consultations
+        const { data: recordsData, error: recordsError } = await supabase
+            .from('records')
+            .select('*');
+
+        if (recordsError) throw recordsError;
+        
+        // Map database fields to frontend structure (snake_case -> camelCase)
+        state.records = (recordsData || []).map(r => ({
+            id: r.id,
+            type: r.type,
+            date: r.date,
+            thought: r.thought,
+            emotions: r.emotions,
+            intensity: r.intensity,
+            conduct: r.conduct,
+            feedback: r.feedback,
+            feedbackDate: r.feedback_date
+        }));
+
+        // 2. Fetch tasks
+        const { data: tasksData, error: tasksError } = await supabase
+            .from('tasks')
+            .select('*');
+
+        if (tasksError) throw tasksError;
+
+        // Map database tasks structure (snake_case -> camelCase)
+        state.tasks = (tasksData || []).map(t => ({
+            id: t.id,
+            title: t.title,
+            desc: t.desc,
+            due: t.due,
+            completed: t.completed,
+            reply: t.reply,
+            completedDate: t.completed_date,
+            file: t.file_url ? {
+                path: t.file_url,
+                originalName: t.file_name,
+                size: t.file_size
+            } : null
+        }));
     } catch (err) {
-        console.error("Error cargando base de datos desde el servidor:", err);
-        alert("⚠️ No se pudo conectar con el servidor de Node.js. Asegúrate de que esté corriendo.");
+        console.error("Error sincronizando con Supabase:", err);
     }
 }
 
@@ -154,18 +231,47 @@ async function navigateToTab(tabId) {
         activeBtn.classList.add("active");
     }
 
-    // Dynamic data fetch on tab navigation to keep synced
-    try {
-        if (tabId === 'paul-dashboard' || tabId === 'emily-dashboard' || tabId === 'paul-history' || tabId === 'emily-records') {
-            const res = await fetch('/api/records');
-            if (res.ok) state.records = await res.json();
+    // Re-fetch data on active navigation if Supabase is set
+    if (supabase) {
+        try {
+            if (tabId === 'paul-dashboard' || tabId === 'emily-dashboard' || tabId === 'paul-history' || tabId === 'emily-records') {
+                const { data } = await supabase.from('records').select('*');
+                if (data) {
+                    state.records = data.map(r => ({
+                        id: r.id,
+                        type: r.type,
+                        date: r.date,
+                        thought: r.thought,
+                        emotions: r.emotions,
+                        intensity: r.intensity,
+                        conduct: r.conduct,
+                        feedback: r.feedback,
+                        feedbackDate: r.feedback_date
+                    }));
+                }
+            }
+            if (tabId === 'paul-tasks' || tabId === 'emily-assign-task' || tabId === 'paul-dashboard' || tabId === 'emily-dashboard') {
+                const { data } = await supabase.from('tasks').select('*');
+                if (data) {
+                    state.tasks = data.map(t => ({
+                        id: t.id,
+                        title: t.title,
+                        desc: t.desc,
+                        due: t.due,
+                        completed: t.completed,
+                        reply: t.reply,
+                        completedDate: t.completed_date,
+                        file: t.file_url ? {
+                            path: t.file_url,
+                            originalName: t.file_name,
+                            size: t.file_size
+                        } : null
+                    }));
+                }
+            }
+        } catch (e) {
+            console.warn("Error auto-sincronizando con Supabase:", e.message);
         }
-        if (tabId === 'paul-tasks' || tabId === 'emily-assign-task' || tabId === 'paul-dashboard' || tabId === 'emily-dashboard') {
-            const res = await fetch('/api/tasks');
-            if (res.ok) state.tasks = await res.json();
-        }
-    } catch (e) {
-        console.warn("Error auto-sincronizando con el servidor:", e.message);
     }
 
     // Custom tab trigger renders
@@ -199,7 +305,7 @@ function updateIntensityDisplay(val) {
     }
 }
 
-// Save emotional record via API POST
+// Save emotional record directly to Supabase table
 async function saveSelfRecord(e) {
     e.preventDefault();
 
@@ -219,28 +325,40 @@ async function saveSelfRecord(e) {
         return;
     }
 
-    try {
-        const res = await fetch('/api/records', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                date: dateVal,
-                thought: thoughtVal,
-                emotions: emotionsChecked,
-                intensity: intensityVal,
-                conduct: conductVal
-            })
-        });
+    const newRecord = {
+        id: "rec-" + Date.now(),
+        type: "record",
+        date: dateVal,
+        thought: thoughtVal,
+        emotions: emotionsChecked,
+        intensity: intensityVal,
+        conduct: conductVal,
+        feedback: null
+    };
 
-        if (!res.ok) throw new Error("Error guardando el registro.");
-        
-        const savedRecord = await res.json();
-        state.records.push(savedRecord);
-        navigateToTab('paul-dashboard');
-    } catch (err) {
-        console.error(err);
-        alert("No se pudo conectar al servidor para guardar el autorregistro.");
+    if (supabase) {
+        try {
+            const { error } = await supabase
+                .from('records')
+                .insert([{
+                    id: newRecord.id,
+                    type: newRecord.type,
+                    date: newRecord.date,
+                    thought: newRecord.thought,
+                    emotions: newRecord.emotions,
+                    intensity: newRecord.intensity,
+                    conduct: newRecord.conduct
+                }]);
+
+            if (error) throw error;
+        } catch (err) {
+            console.error("Error guardando en Supabase:", err);
+            alert("No se pudo guardar el autorregistro en la nube. Se guardará de forma local temporalmente.");
+        }
     }
+
+    state.records.push(newRecord);
+    navigateToTab('paul-dashboard');
 }
 
 // Populate stats & render chart on Paul's dashboard
@@ -405,34 +523,41 @@ function closeConsultationModal() {
     document.getElementById("form-consultation").reset();
 }
 
-// Save consultation details via API
+// Save consultation details via Supabase
 async function saveConsultation(e) {
     e.preventDefault();
 
     const dateVal = document.getElementById("consultation-date").value;
     const notesVal = document.getElementById("consultation-notes").value;
 
-    try {
-        const res = await fetch('/api/consultations', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                date: dateVal,
-                notes: notesVal
-            })
-        });
+    const newConsultation = {
+        id: "con-" + Date.now(),
+        type: "consultation",
+        date: dateVal,
+        notes: notesVal
+    };
 
-        if (!res.ok) throw new Error("Error guardando consulta.");
+    if (supabase) {
+        try {
+            const { error } = await supabase
+                .from('records')
+                .insert([{
+                    id: newConsultation.id,
+                    type: newConsultation.type,
+                    date: newConsultation.date,
+                    notes: newConsultation.notes
+                }]);
 
-        const savedConsultation = await res.json();
-        state.records.push(savedConsultation);
-
-        closeConsultationModal();
-        renderPaulDashboard();
-    } catch (err) {
-        console.error(err);
-        alert("No se pudo guardar la consulta.");
+            if (error) throw error;
+        } catch (err) {
+            console.error("Error guardando consulta en Supabase:", err);
+            alert("No se pudo guardar la consulta en la nube.");
+        }
     }
+
+    state.records.push(newConsultation);
+    closeConsultationModal();
+    renderPaulDashboard();
 }
 
 // Open / Close Task Reply Modal
@@ -448,7 +573,7 @@ function closeTaskReplyModal() {
     removeSelectedFile();
 }
 
-// Save response to task + upload file with Multipart FormData
+// Upload file to Supabase Storage Bucket and update task row
 async function saveTaskReply(e) {
     e.preventDefault();
 
@@ -456,34 +581,81 @@ async function saveTaskReply(e) {
     const replyVal = document.getElementById("reply-content").value;
     const fileInput = document.getElementById("reply-file");
 
-    const formData = new FormData();
-    formData.append("reply", replyVal);
-    if (fileInput && fileInput.files[0]) {
-        formData.append("attachment", fileInput.files[0]);
-    }
+    let fileMetadata = null;
 
-    try {
-        const res = await fetch(`/api/tasks/${taskId}/reply`, {
-            method: 'POST',
-            body: formData
-        });
+    if (supabase) {
+        try {
+            // Process file upload if file is selected
+            if (fileInput && fileInput.files[0]) {
+                const file = fileInput.files[0];
+                const fileExt = file.name.split('.').pop();
+                const uniqueFileName = `${Date.now()}_${Math.round(Math.random() * 1E6)}.${fileExt}`;
+                const sizeText = (file.size / 1024).toFixed(1) + " KB";
+                
+                // Upload to Supabase Storage Bucket 'task-attachments'
+                const { data: uploadData, error: uploadError } = await supabase.storage
+                    .from('task-attachments')
+                    .upload(uniqueFileName, file);
 
-        if (!res.ok) throw new Error("Error al entregar la tarea.");
+                if (uploadError) throw uploadError;
 
-        const savedTask = await res.json();
+                // Get public URL of uploaded file
+                const { data: urlData } = supabase.storage
+                    .from('task-attachments')
+                    .getPublicUrl(uniqueFileName);
 
-        // Sync local state
+                fileMetadata = {
+                    path: urlData.publicUrl,
+                    originalName: file.name,
+                    size: sizeText
+                };
+            }
+
+            // Update task in database
+            const { error } = await supabase
+                .from('tasks')
+                .update({
+                    completed: true,
+                    reply: replyVal,
+                    completed_date: new Date().toISOString(),
+                    file_url: fileMetadata ? fileMetadata.path : null,
+                    file_name: fileMetadata ? fileMetadata.originalName : null,
+                    file_size: fileMetadata ? fileMetadata.size : null
+                })
+                .eq('id', taskId);
+
+            if (error) throw error;
+
+            // Sync state
+            const taskIndex = state.tasks.findIndex(t => t.id === taskId);
+            if (taskIndex !== -1) {
+                state.tasks[taskIndex].completed = true;
+                state.tasks[taskIndex].reply = replyVal;
+                state.tasks[taskIndex].completedDate = new Date().toISOString();
+                state.tasks[taskIndex].file = fileMetadata;
+            }
+        } catch (err) {
+            console.error("Error al subir archivo o guardar respuesta en Supabase:", err);
+            alert("No se pudo subir el archivo o entregar la tarea en Supabase.");
+            return;
+        }
+    } else {
+        // Fallback local state update if supabase is not connected
         const taskIndex = state.tasks.findIndex(t => t.id === taskId);
         if (taskIndex !== -1) {
-            state.tasks[taskIndex] = savedTask;
+            state.tasks[taskIndex].completed = true;
+            state.tasks[taskIndex].reply = replyVal;
+            state.tasks[taskIndex].completedDate = new Date().toISOString();
+            state.tasks[taskIndex].file = selectedFileMetadata ? {
+                path: "#",
+                originalName: selectedFileMetadata.name,
+                size: selectedFileMetadata.size
+            } : null;
         }
-
-        closeTaskReplyModal();
-        renderPaulTasks();
-    } catch (err) {
-        console.error(err);
-        alert("Error de conexión. No se pudo entregar la tarea en el servidor.");
     }
+
+    closeTaskReplyModal();
+    renderPaulTasks();
 }
 
 // File Attachment Event Handlers (Preview before uploading)
@@ -502,6 +674,8 @@ function handleFileSelected(input) {
             type: file.type
         };
         
+        selectedRawFile = file;
+        
         if (previewFilename) previewFilename.innerText = file.name;
         if (previewFilesize) previewFilesize.innerText = selectedFileMetadata.size;
         if (filePreview) filePreview.style.display = "flex";
@@ -516,6 +690,7 @@ function removeSelectedFile() {
     if (fileInput) fileInput.value = "";
     if (filePreview) filePreview.style.display = "none";
     selectedFileMetadata = null;
+    selectedRawFile = null;
 }
 
 // Render Patient's records history
@@ -635,7 +810,7 @@ function applyFilters() {
             const matchesText = item.notes.toLowerCase().includes(searchVal);
             if (!matchesText) return false;
             
-            if (emotionVal) return false; // Consultations don't have emotions
+            if (emotionVal) return false;
             if (minIntensityVal > 0) return false;
         }
 
@@ -716,20 +891,16 @@ function PaulUrdanetaDateSlug() {
 
 // Render clinician profile header and quick summary metrics
 function renderEmilyDashboard() {
-    // 1. Records count
     const totalRecords = state.records.filter(r => r.type === 'record').length;
     document.getElementById("emily-stat-records-count").innerText = totalRecords;
 
-    // 2. Average intensity
     const totalIntensity = state.records.filter(r => r.type === 'record').reduce((sum, r) => sum + r.intensity, 0);
     const avgIntensity = totalRecords > 0 ? Math.round(totalIntensity / totalRecords) : 0;
     document.getElementById("emily-stat-alert-intensity").innerText = avgIntensity + "%";
 
-    // 3. Completed tasks count
     const completedTasks = state.tasks.filter(t => t.completed).length;
     document.getElementById("emily-stat-tasks-done").innerText = `${completedTasks}/${state.tasks.length}`;
 
-    // 4. Session statistics
     const consultations = state.records.filter(r => r.type === 'consultation').sort((a,b) => new Date(b.date) - new Date(a.date));
     const consultationsCountEl = document.getElementById("emily-consultations-count");
     const lastConsultationDateEl = document.getElementById("emily-last-consultation-date");
@@ -742,11 +913,10 @@ function renderEmilyDashboard() {
         if (lastConsultationDateEl) lastConsultationDateEl.innerText = "No registrada";
     }
 
-    // 5. Render evolution chart
     renderChart('chart-emily-evolution', 'emily');
 }
 
-// Assign and save new therapists tasks via API
+// Assign and save new therapists tasks in Supabase
 async function saveAssignedTask(e) {
     e.preventDefault();
 
@@ -754,24 +924,37 @@ async function saveAssignedTask(e) {
     const desc = document.getElementById("task-desc").value;
     const due = document.getElementById("task-due").value;
 
-    try {
-        const res = await fetch('/api/tasks', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ title, desc, due })
-        });
+    const newTask = {
+        id: "task-" + Date.now(),
+        title: title,
+        desc: desc,
+        due: due,
+        completed: false,
+        reply: null
+    };
 
-        if (!res.ok) throw new Error("Error asignando tarea.");
-        
-        const savedTask = await res.json();
-        state.tasks.push(savedTask);
+    if (supabase) {
+        try {
+            const { error } = await supabase
+                .from('tasks')
+                .insert([{
+                    id: newTask.id,
+                    title: newTask.title,
+                    desc: newTask.desc,
+                    due: newTask.due,
+                    completed: false
+                }]);
 
-        document.getElementById("form-assign-task").reset();
-        renderEmilyTasksPanel();
-    } catch (err) {
-        console.error(err);
-        alert("No se pudo asignar la tarea en el servidor.");
+            if (error) throw error;
+        } catch (err) {
+            console.error("Error guardando tarea en Supabase:", err);
+            alert("No se pudo asignar la tarea en la nube.");
+        }
     }
+
+    state.tasks.push(newTask);
+    document.getElementById("form-assign-task").reset();
+    renderEmilyTasksPanel();
 }
 
 // Render Emily's tasks control panel
@@ -922,7 +1105,7 @@ function renderEmilyRecords(filteredRecords = null) {
                     </div>
                     <div class="conduct-box">
                         <span class="box-title"><i data-lucide="activity"></i> Conducta</span>
-                        <p class="thought-text">${item.conduct}</p>
+                        <p class="conduct-text">${item.conduct}</p>
                     </div>
                     ${feedbackActionHTML}
                 </div>
@@ -1008,36 +1191,40 @@ function closeClinicalCommentModal() {
     document.getElementById("form-clinical-comment").reset();
 }
 
-// Save Clinical comment feedback via API
+// Save Clinical comment feedback via Supabase Update
 async function saveClinicalComment(e) {
     e.preventDefault();
 
     const recordId = document.getElementById("comment-record-id").value;
     const commentVal = document.getElementById("clinical-comment-content").value;
 
-    try {
-        const res = await fetch(`/api/records/${recordId}/feedback`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ feedback: commentVal })
-        });
+    if (supabase) {
+        try {
+            const { error } = await supabase
+                .from('records')
+                .update({
+                    feedback: commentVal,
+                    feedback_date: new Date().toISOString()
+                })
+                .eq('id', recordId);
 
-        if (!res.ok) throw new Error("Error guardando comentario.");
+            if (error) throw error;
 
-        const savedRecord = await res.json();
-
-        // Sync local records state
-        const recordIndex = state.records.findIndex(r => r.id === recordId);
-        if (recordIndex !== -1) {
-            state.records[recordIndex] = savedRecord;
+            // Sync state
+            const recordIndex = state.records.findIndex(r => r.id === recordId);
+            if (recordIndex !== -1) {
+                state.records[recordIndex].feedback = commentVal;
+                state.records[recordIndex].feedbackDate = new Date().toISOString();
+            }
+        } catch (err) {
+            console.error("Error guardando comentario clínico en Supabase:", err);
+            alert("No se pudo guardar la retroalimentación clínica.");
+            return;
         }
-
-        closeClinicalCommentModal();
-        renderEmilyRecords();
-    } catch (err) {
-        console.error(err);
-        alert("No se pudo conectar al servidor para guardar la retroalimentación.");
     }
+
+    closeClinicalCommentModal();
+    renderEmilyRecords();
 }
 
 // --- DYNAMIC DUAL GRAPHS (Chart.js implementation) ---
