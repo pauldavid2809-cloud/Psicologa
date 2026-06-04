@@ -151,12 +151,10 @@ function setDefaultDateInput() {
     const yyyy = now.getFullYear();
     const mm = String(now.getMonth() + 1).padStart(2, '0');
     const dd = String(now.getDate()).padStart(2, '0');
-    const hh = String(now.getHours()).padStart(2, '0');
-    const min = String(now.getMinutes()).padStart(2, '0');
     
-    const dateTimeLocal = `${yyyy}-${mm}-${dd}T${hh}:${min}`;
+    const dateStr = `${yyyy}-${mm}-${dd}`;
     const dateInput = document.getElementById("record-date");
-    if (dateInput) dateInput.value = dateTimeLocal;
+    if (dateInput) dateInput.value = dateStr;
 }
 
 // Render dynamic tabs depending on the active role
@@ -792,9 +790,7 @@ function openConsultationModal() {
     const yyyy = now.getFullYear();
     const mm = String(now.getMonth() + 1).padStart(2, '0');
     const dd = String(now.getDate()).padStart(2, '0');
-    const hh = String(now.getHours()).padStart(2, '0');
-    const min = String(now.getMinutes()).padStart(2, '0');
-    document.getElementById("consultation-date").value = `${yyyy}-${mm}-${dd}T${hh}:${min}`;
+    document.getElementById("consultation-date").value = `${yyyy}-${mm}-${dd}`;
 }
 
 function closeConsultationModal() {
@@ -1674,17 +1670,27 @@ function formatFriendlyDate(dateStr) {
 
 function formatDateTimeString(dateTimeStr) {
     if (!dateTimeStr) return "Sin fecha";
-    const date = new Date(dateTimeStr);
-    if (isNaN(date.getTime())) return dateTimeStr;
+    // Check if contains "T" (backwards compatibility for datetime values)
+    if (dateTimeStr.includes('T')) {
+        const date = new Date(dateTimeStr);
+        if (isNaN(date.getTime())) return dateTimeStr;
 
-    const dd = String(date.getDate()).padStart(2, '0');
-    const mm = String(date.getMonth() + 1).padStart(2, '0');
-    const yyyy = date.getFullYear();
-    
-    const hh = String(date.getHours()).padStart(2, '0');
-    const min = String(date.getMinutes()).padStart(2, '0');
+        const dd = String(date.getDate()).padStart(2, '0');
+        const mm = String(date.getMonth() + 1).padStart(2, '0');
+        const yyyy = date.getFullYear();
+        
+        const hh = String(date.getHours()).padStart(2, '0');
+        const min = String(date.getMinutes()).padStart(2, '0');
 
-    return `${dd}/${mm}/${yyyy} a las ${hh}:${min} hs`;
+        return `${dd}/${mm}/${yyyy} a las ${hh}:${min} hs`;
+    } else {
+        // Simple YYYY-MM-DD
+        const parts = dateTimeStr.split('-');
+        if (parts.length === 3) {
+            return `${parts[2]}/${parts[1]}/${parts[0]}`;
+        }
+        return dateTimeStr;
+    }
 }
 
 // --- DAILY ACTIVITIES LOGIC ---
