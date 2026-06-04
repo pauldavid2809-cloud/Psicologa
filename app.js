@@ -3,8 +3,8 @@
 // ==========================================
 // Reemplaza estos dos valores con los datos de tu proyecto en Supabase.
 // Puedes encontrarlos en: Settings -> API en tu panel de control de Supabase.
-const SUPABASE_URL = "TU_SUPABASE_URL";
-const SUPABASE_ANON_KEY = "TU_SUPABASE_ANON_KEY";
+const SUPABASE_URL = "https://hjifqjppjswfgqmartoz.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhqaWZxanBwanN3ZmdxbWFydG96Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA2MDM0NzMsImV4cCI6MjA5NjE3OTQ3M30.fJltRIJSCacfup_YHxrbgPtk45Vgr8yogjO3n4I9H80";
 
 // Global State variables
 let state = {
