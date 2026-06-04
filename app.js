@@ -21,11 +21,11 @@ let selectedFileMetadata = null; // Temp holder for file upload previews
 let selectedRawFile = null; // Temp holder for the actual raw file object
 
 // Initialize Supabase Client
-let supabase = null;
+let supabaseClient = null;
 const isSupabaseConfigured = (SUPABASE_URL !== "TU_SUPABASE_URL" && SUPABASE_ANON_KEY !== "TU_SUPABASE_ANON_KEY");
 
 if (window.supabase && isSupabaseConfigured) {
-    supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 }
 
 // App Initialization
@@ -79,12 +79,12 @@ async function initDatabase() {
     // Sync UI view theme class
     updateThemeClass();
 
-    if (!supabase) return;
+    if (!supabaseClient) return;
 
     // Fetch data from Supabase
     try {
         // 1. Fetch records & consultations
-        const { data: recordsData, error: recordsError } = await supabase
+        const { data: recordsData, error: recordsError } = await supabaseClient
             .from('records')
             .select('*');
 
@@ -104,7 +104,7 @@ async function initDatabase() {
         }));
 
         // 2. Fetch tasks
-        const { data: tasksData, error: tasksError } = await supabase
+        const { data: tasksData, error: tasksError } = await supabaseClient
             .from('tasks')
             .select('*');
 
@@ -232,10 +232,10 @@ async function navigateToTab(tabId) {
     }
 
     // Re-fetch data on active navigation if Supabase is set
-    if (supabase) {
+    if (supabaseClient) {
         try {
             if (tabId === 'paul-dashboard' || tabId === 'emily-dashboard' || tabId === 'paul-history' || tabId === 'emily-records') {
-                const { data } = await supabase.from('records').select('*');
+                const { data } = await supabaseClient.from('records').select('*');
                 if (data) {
                     state.records = data.map(r => ({
                         id: r.id,
@@ -251,7 +251,7 @@ async function navigateToTab(tabId) {
                 }
             }
             if (tabId === 'paul-tasks' || tabId === 'emily-assign-task' || tabId === 'paul-dashboard' || tabId === 'emily-dashboard') {
-                const { data } = await supabase.from('tasks').select('*');
+                const { data } = await supabaseClient.from('tasks').select('*');
                 if (data) {
                     state.tasks = data.map(t => ({
                         id: t.id,
@@ -336,9 +336,9 @@ async function saveSelfRecord(e) {
         feedback: null
     };
 
-    if (supabase) {
+    if (supabaseClient) {
         try {
-            const { error } = await supabase
+            const { error } = await supabaseClient
                 .from('records')
                 .insert([{
                     id: newRecord.id,
@@ -537,9 +537,9 @@ async function saveConsultation(e) {
         notes: notesVal
     };
 
-    if (supabase) {
+    if (supabaseClient) {
         try {
-            const { error } = await supabase
+            const { error } = await supabaseClient
                 .from('records')
                 .insert([{
                     id: newConsultation.id,
@@ -583,7 +583,7 @@ async function saveTaskReply(e) {
 
     let fileMetadata = null;
 
-    if (supabase) {
+    if (supabaseClient) {
         try {
             // Process file upload if file is selected
             if (fileInput && fileInput.files[0]) {
@@ -593,14 +593,14 @@ async function saveTaskReply(e) {
                 const sizeText = (file.size / 1024).toFixed(1) + " KB";
                 
                 // Upload to Supabase Storage Bucket 'task-attachments'
-                const { data: uploadData, error: uploadError } = await supabase.storage
+                const { data: uploadData, error: uploadError } = await supabaseClient.storage
                     .from('task-attachments')
                     .upload(uniqueFileName, file);
 
                 if (uploadError) throw uploadError;
 
                 // Get public URL of uploaded file
-                const { data: urlData } = supabase.storage
+                const { data: urlData } = supabaseClient.storage
                     .from('task-attachments')
                     .getPublicUrl(uniqueFileName);
 
@@ -612,7 +612,7 @@ async function saveTaskReply(e) {
             }
 
             // Update task in database
-            const { error } = await supabase
+            const { error } = await supabaseClient
                 .from('tasks')
                 .update({
                     completed: true,
@@ -933,9 +933,9 @@ async function saveAssignedTask(e) {
         reply: null
     };
 
-    if (supabase) {
+    if (supabaseClient) {
         try {
-            const { error } = await supabase
+            const { error } = await supabaseClient
                 .from('tasks')
                 .insert([{
                     id: newTask.id,
@@ -1198,9 +1198,9 @@ async function saveClinicalComment(e) {
     const recordId = document.getElementById("comment-record-id").value;
     const commentVal = document.getElementById("clinical-comment-content").value;
 
-    if (supabase) {
+    if (supabaseClient) {
         try {
-            const { error } = await supabase
+            const { error } = await supabaseClient
                 .from('records')
                 .update({
                     feedback: commentVal,
