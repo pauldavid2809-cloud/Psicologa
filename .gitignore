@@ -1,0 +1,12 @@
+# Dependencias de Node
+node_modules/
+
+# Archivos de base de datos local y privacidad del paciente
+database.json
+uploads/*
+!uploads/.gitkeep
+
+# Variables de entorno locales
+.env
+.DS_Store
+Thumbs.db
