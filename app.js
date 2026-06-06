@@ -93,17 +93,22 @@ async function initDatabase() {
         if (recordsError) throw recordsError;
         
         // Map database fields to frontend structure (snake_case -> camelCase)
-        state.records = (recordsData || []).map(r => ({
-            id: r.id,
-            type: r.type,
-            date: r.date,
-            thought: r.thought,
-            emotions: r.emotions,
-            intensity: r.intensity,
-            conduct: r.conduct,
-            feedback: r.feedback,
-            feedbackDate: r.feedback_date
-        }));
+        state.records = (recordsData || []).map(r => {
+            const parsed = r.type === 'record' ? parseThoughtAndSituation(r.thought) : { thought: r.thought, situation: "" };
+            return {
+                id: r.id,
+                type: r.type,
+                date: r.date,
+                thought: parsed.thought,
+                situation: parsed.situation,
+                emotions: r.emotions,
+                intensity: r.intensity,
+                conduct: r.conduct,
+                feedback: r.feedback,
+                feedbackDate: r.feedback_date,
+                notes: r.type === 'consultation' ? r.thought : null
+            };
+        });
 
         // 2. Fetch tasks
         const { data: tasksData, error: tasksError } = await supabaseClient
@@ -497,17 +502,22 @@ async function navigateToTab(tabId) {
             if (tabId === 'paul-dashboard' || tabId === 'emily-dashboard' || tabId === 'paul-history' || tabId === 'emily-records') {
                 const { data } = await supabaseClient.from('records').select('*');
                 if (data) {
-                    state.records = data.map(r => ({
-                        id: r.id,
-                        type: r.type,
-                        date: r.date,
-                        thought: r.thought,
-                        emotions: r.emotions,
-                        intensity: r.intensity,
-                        conduct: r.conduct,
-                        feedback: r.feedback,
-                        feedbackDate: r.feedback_date
-                    }));
+                    state.records = data.map(r => {
+                        const parsed = r.type === 'record' ? parseThoughtAndSituation(r.thought) : { thought: r.thought, situation: "" };
+                        return {
+                            id: r.id,
+                            type: r.type,
+                            date: r.date,
+                            thought: parsed.thought,
+                            situation: parsed.situation,
+                            emotions: r.emotions,
+                            intensity: r.intensity,
+                            conduct: r.conduct,
+                            feedback: r.feedback,
+                            feedbackDate: r.feedback_date,
+                            notes: r.type === 'consultation' ? r.thought : null
+                        };
+                    });
                 }
             }
             if (tabId === 'paul-tasks' || tabId === 'emily-assign-task' || tabId === 'paul-dashboard' || tabId === 'emily-dashboard') {
@@ -576,6 +586,7 @@ async function saveSelfRecord(e) {
     e.preventDefault();
 
     const dateVal = document.getElementById("record-date").value;
+    const situationVal = document.getElementById("record-situation").value;
     const thoughtVal = document.getElementById("record-thought").value;
     const intensityVal = parseInt(document.getElementById("record-intensity").value);
     const conductVal = document.getElementById("record-conduct").value;
@@ -599,11 +610,17 @@ async function saveSelfRecord(e) {
         return;
     }
 
+    const serializedThought = JSON.stringify({
+        thought: thoughtVal,
+        situation: situationVal
+    });
+
     const newRecord = {
         id: "rec-" + Date.now(),
         type: "record",
         date: dateVal,
         thought: thoughtVal,
+        situation: situationVal,
         emotions: emotionsChecked,
         intensity: intensityVal,
         conduct: conductVal,
@@ -618,7 +635,7 @@ async function saveSelfRecord(e) {
                     id: newRecord.id,
                     type: newRecord.type,
                     date: newRecord.date,
-                    thought: newRecord.thought,
+                    thought: serializedThought,
                     emotions: newRecord.emotions,
                     intensity: newRecord.intensity,
                     conduct: newRecord.conduct
@@ -820,7 +837,7 @@ async function saveConsultation(e) {
                     id: newConsultation.id,
                     type: newConsultation.type,
                     date: newConsultation.date,
-                    notes: newConsultation.notes
+                    thought: newConsultation.notes
                 }]);
 
             if (error) throw error;
@@ -1029,6 +1046,12 @@ function renderPaulHistory(filteredRecords = null) {
                     <span class="record-intensity-badge ${intensityClass}">Intensidad: ${item.intensity}%</span>
                 </div>
                 <div class="record-card-body">
+                    ${item.situation ? `
+                    <div class="situation-box" style="background: rgba(37, 99, 235, 0.03); padding: 0.75rem 1rem; border-radius: var(--radius-sm); border: 1px solid var(--border-color); border-left: 3px solid var(--color-patient); margin-bottom: 0.5rem;">
+                        <span class="box-title" style="color: var(--color-patient);"><i data-lucide="map-pin"></i> Situación</span>
+                        <p class="situation-text" style="margin: 0; font-size: 0.95rem; line-height: 1.45;">${item.situation}</p>
+                    </div>
+                    ` : ''}
                     <div class="thought-box">
                         <span class="box-title"><i data-lucide="brain"></i> Pensamiento Automático</span>
                         <p class="thought-text">"${item.thought}"</p>
@@ -1132,7 +1155,7 @@ function exportDataCSV() {
     }
 
     let csvContent = "data:text/csv;charset=utf-8,\uFEFF";
-    csvContent += "Tipo,Fecha y Hora,Pensamiento Automatico / Notas,Intensidad,Emociones,Conducta\n";
+    csvContent += "Tipo,Fecha y Hora,Situación,Pensamiento Automático / Notas,Intensidad,Emociones,Conducta\n";
 
     const sorted = [...state.records].sort((a, b) => new Date(a.date) - new Date(b.date));
 
@@ -1140,16 +1163,20 @@ function exportDataCSV() {
         let type = r.type === 'record' ? 'Autorregistro' : 'Consulta';
         let date = formatDateTimeString(r.date).replace(/,/g, '');
         let content = r.type === 'record' ? r.thought : r.notes;
+        let situation = r.type === 'record' ? r.situation || '' : 'N/A';
         let intensity = r.type === 'record' ? r.intensity : 'N/A';
         let emotions = r.type === 'record' ? r.emotions.join('|') : 'N/A';
         let conduct = r.type === 'record' ? r.conduct : 'N/A';
 
         content = `"${content.replace(/"/g, '""')}"`;
+        if (situation !== 'N/A') {
+            situation = `"${situation.replace(/"/g, '""')}"`;
+        }
         if (conduct !== 'N/A') {
             conduct = `"${conduct.replace(/"/g, '""')}"`;
         }
 
-        csvContent += `${type},${date},${content},${intensity},${emotions},${conduct}\n`;
+        csvContent += `${type},${date},${situation},${content},${intensity},${emotions},${conduct}\n`;
     });
 
     const encodedUri = encodeURI(csvContent);
@@ -1376,6 +1403,12 @@ function renderEmilyRecords(filteredRecords = null) {
                     <span class="record-intensity-badge ${intensityClass}">Intensidad: ${item.intensity}%</span>
                 </div>
                 <div class="record-card-body">
+                    ${item.situation ? `
+                    <div class="situation-box" style="background: rgba(37, 99, 235, 0.03); padding: 0.75rem 1rem; border-radius: var(--radius-sm); border: 1px solid var(--border-color); border-left: 3px solid var(--color-patient); margin-bottom: 0.5rem;">
+                        <span class="box-title" style="color: var(--color-patient);"><i data-lucide="map-pin"></i> Situación</span>
+                        <p class="situation-text" style="margin: 0; font-size: 0.95rem; line-height: 1.45;">${item.situation}</p>
+                    </div>
+                    ` : ''}
                     <div class="thought-box">
                         <span class="box-title"><i data-lucide="brain"></i> Pensamiento Automático</span>
                         <p class="thought-text">"${item.thought}"</p>
@@ -1693,6 +1726,42 @@ function formatDateTimeString(dateTimeStr) {
     }
 }
 
+// Helper to parse thought and situation in a backward-compatible way
+function parseThoughtAndSituation(rawThought) {
+    if (!rawThought) {
+        return { thought: "", situation: "" };
+    }
+    
+    const trimmed = rawThought.trim();
+    if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
+        try {
+            const parsed = JSON.parse(trimmed);
+            if (parsed && typeof parsed === 'object') {
+                return {
+                    thought: parsed.thought || "",
+                    situation: parsed.situation || ""
+                };
+            }
+        } catch (e) {
+            // Ignore and try regex
+        }
+    }
+    
+    // Check for manual (Situacion: ...) pattern
+    const situationRegex = /\((?:Situaci[oó]n|situaci[oó]n):\s*([^)]+)\)/i;
+    const match = rawThought.match(situationRegex);
+    if (match) {
+        const situation = match[1].trim();
+        const thought = rawThought.replace(situationRegex, "").trim();
+        return { thought, situation };
+    }
+    
+    return {
+        thought: rawThought,
+        situation: ""
+    };
+}
+
 // --- DAILY ACTIVITIES LOGIC ---
 
 function getTodayLocalDateStr() {
@@ -1760,37 +1829,6 @@ async function handleAddDailyActivity(e) {
     }
 }
 
-async function toggleActivityState(id, completed) {
-    const activity = state.dailyActivities.find(a => a.id === id);
-    if (activity) {
-        activity.completed = completed;
-    }
-
-    // Estilo visual inmediato
-    const itemDiv = document.getElementById(`activity-item-${id}`);
-    if (itemDiv) {
-        if (completed) {
-            itemDiv.classList.add('completed');
-        } else {
-            itemDiv.classList.remove('completed');
-        }
-    }
-
-    // Supabase update
-    if (supabaseClient) {
-        try {
-            const { error } = await supabaseClient
-                .from('daily_activities')
-                .update({ completed: completed })
-                .eq('id', id);
-
-            if (error) throw error;
-        } catch (err) {
-            console.error("Error actualizando estado de actividad:", err);
-        }
-    }
-}
-
 async function deleteDailyActivity(id) {
     // Eliminar del estado local
     state.dailyActivities = state.dailyActivities.filter(a => a.id !== id);
@@ -1828,17 +1866,17 @@ function renderDailyActivities() {
     state.dailyActivities.forEach(act => {
         const item = document.createElement("div");
         item.id = `activity-item-${act.id}`;
-        item.className = `daily-habit-item ${act.completed ? 'completed' : ''}`;
+        item.className = "daily-habit-item";
         item.style.display = "flex";
         item.style.alignItems = "center";
         item.style.justifyContent = "space-between";
         item.style.gap = "0.5rem";
 
         item.innerHTML = `
-            <label class="habit-checkbox-label" style="display: flex; align-items: center; gap: 0.75rem; cursor: pointer; flex-grow: 1;">
-                <input type="checkbox" onchange="toggleActivityState('${act.id}', this.checked)" ${act.completed ? 'checked' : ''}>
-                <span>${act.content}</span>
-            </label>
+            <div style="display: flex; align-items: center; gap: 0.75rem; flex-grow: 1; color: var(--text-primary);">
+                <span style="width: 6px; height: 6px; border-radius: 50%; background-color: var(--color-patient); flex-shrink: 0; display: inline-block;"></span>
+                <span style="font-size: 0.95rem; font-weight: 500;">${act.content}</span>
+            </div>
             <button onclick="deleteDailyActivity('${act.id}')" class="btn btn-text" style="color: var(--color-accent); padding: 0.25rem 0.5rem; background: transparent; border: none; cursor: pointer;" title="Eliminar">
                 <i data-lucide="trash-2" style="width: 0.9rem; height: 0.9rem;"></i>
             </button>
@@ -1939,6 +1977,12 @@ function renderEmilyRecentRegistries() {
                 <span style="font-size: 0.75rem; color: var(--text-muted); font-weight: 500;">${formatDateTimeString(item.date)}</span>
                 <span class="record-intensity-badge ${intensityClass}" style="font-size: 0.75rem; padding: 0.15rem 0.4rem;">Intensidad: ${item.intensity}%</span>
             </div>
+            ${item.situation ? `
+            <div style="margin-bottom: 0.5rem; padding: 0.65rem; background: rgba(37, 99, 235, 0.03); border-left: 3px solid var(--color-patient); border-radius: 4px;">
+                <span style="font-size: 0.75rem; color: var(--text-muted); font-weight: 700; text-transform: uppercase; display: block; margin-bottom: 0.25rem;"><i data-lucide="map-pin" style="width: 0.8rem; height: 0.8rem; vertical-align: text-bottom; margin-right: 0.15rem;"></i> Situación:</span>
+                <p style="margin: 0; font-size: 0.85rem; color: var(--text-secondary);">${item.situation}</p>
+            </div>
+            ` : ''}
             <div style="margin-bottom: 0.5rem;">
                 <span style="font-size: 0.75rem; color: var(--text-muted); font-weight: 700; text-transform: uppercase; display: block; margin-bottom: 0.25rem;">Pensamiento Automático:</span>
                 <p style="margin: 0; font-size: 0.85rem; font-style: italic; color: var(--text-secondary);">"${item.thought}"</p>
@@ -2026,7 +2070,6 @@ function renderEmilyRecentActivities() {
 
     sortedDates.forEach(dateStr => {
         const activities = grouped[dateStr];
-        const completedCount = activities.filter(act => act.completed).length;
         const totalCount = activities.length;
 
         const dateSection = document.createElement("div");
@@ -2039,14 +2082,11 @@ function renderEmilyRecentActivities() {
         let itemsHTML = "";
         activities.forEach(act => {
             itemsHTML += `
-                <div class="daily-habit-item ${act.completed ? 'completed' : ''}" style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; padding: 0.65rem 0.85rem; margin-bottom: 0.5rem; background: rgba(255, 255, 255, 0.55); border-radius: var(--radius-sm); border: 1px solid var(--border-color);">
+                <div class="daily-habit-item" style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; padding: 0.65rem 0.85rem; margin-bottom: 0.5rem; background: rgba(255, 255, 255, 0.55); border-radius: var(--radius-sm); border: 1px solid var(--border-color);">
                     <div class="habit-text-wrapper" style="display: flex; align-items: center; gap: 0.65rem; flex-grow: 1; margin: 0; color: var(--text-primary);">
-                        <i data-lucide="${act.completed ? 'check-circle-2' : 'circle'}" style="width: 1rem; height: 1rem; color: ${act.completed ? 'var(--color-psy)' : 'var(--text-muted)'}; flex-shrink: 0;"></i>
-                        <span style="font-size: 0.85rem; font-weight: 500; ${act.completed ? 'text-decoration: line-through; color: var(--text-muted);' : ''}">${act.content}</span>
+                        <span style="width: 5px; height: 5px; border-radius: 50%; background-color: var(--color-psy); flex-shrink: 0; display: inline-block;"></span>
+                        <span style="font-size: 0.85rem; font-weight: 500;">${act.content}</span>
                     </div>
-                    <span class="task-status-badge ${act.completed ? 'completed' : ''}" style="font-size: 0.65rem; padding: 0.15rem 0.45rem; white-space: nowrap; font-weight: 600;">
-                        ${act.completed ? 'Hecho' : 'Pendiente'}
-                    </span>
                 </div>
             `;
         });
@@ -2059,7 +2099,7 @@ function renderEmilyRecentActivities() {
                     <span class="header-title">${fullDateTitle}</span>
                 </span>
                 <span class="task-status-badge completed" style="background: rgba(13, 148, 136, 0.1); color: var(--color-psy); font-size: 0.75rem; padding: 0.25rem 0.5rem; border: 1px solid rgba(13, 148, 136, 0.15); font-weight: 600;">
-                    ${completedCount}/${totalCount} completadas
+                    ${totalCount} ${totalCount === 1 ? 'actividad' : 'actividades'}
                 </span>
             </button>
             <div class="grouped-date-items">
