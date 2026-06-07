@@ -2021,3 +2021,8 @@ body.role-emily-theme .emoji-select-btn:hover {
     color: #94a3b8;
     line-height: 1.4;
 }
+
+/* Ensure the therapist authentication modal overlays on top of the landing selector */
+#modal-therapist-auth {
+    z-index: 10000;
+}
