@@ -14,7 +14,8 @@ let state = {
     tasks: [],
     dailyActivities: [],
     paulTodayActivities: [],
-    paulRecentActivities: []
+    paulRecentActivities: [],
+    currentWeeklyEmoji: null
 };
 
 // Global chart instances
@@ -94,21 +95,62 @@ async function initDatabase() {
         
         // Map database fields to frontend structure (snake_case -> camelCase)
         state.records = (recordsData || []).map(r => {
-            const parsed = r.type === 'record' ? parseThoughtAndSituation(r.thought) : { thought: r.thought, situation: "" };
-            return {
-                id: r.id,
-                type: r.type,
-                date: r.date,
-                thought: parsed.thought,
-                situation: parsed.situation,
-                emotions: r.emotions,
-                intensity: r.intensity,
-                conduct: r.conduct,
-                feedback: r.feedback,
-                feedbackDate: r.feedback_date,
-                notes: r.type === 'consultation' ? r.thought : null
-            };
+            if (r.type === 'record') {
+                const parsed = parseThoughtAndSituation(r.thought);
+                return {
+                    id: r.id,
+                    type: r.type,
+                    date: r.date,
+                    thought: parsed.thought,
+                    situation: parsed.situation,
+                    emotions: r.emotions,
+                    intensity: r.intensity,
+                    conduct: r.conduct,
+                    feedback: r.feedback,
+                    feedbackDate: r.feedback_date,
+                    notes: null,
+                    weeklyEmoji: null
+                };
+            } else {
+                let notes = r.thought;
+                let weeklyEmoji = null;
+                if (r.thought && r.thought.trim().startsWith('{')) {
+                    try {
+                        const parsed = JSON.parse(r.thought);
+                        notes = parsed.notes || "";
+                        weeklyEmoji = parsed.weeklyEmoji || null;
+                    } catch (e) {}
+                }
+                return {
+                    id: r.id,
+                    type: r.type,
+                    date: r.date,
+                    thought: null,
+                    situation: null,
+                    emotions: null,
+                    intensity: null,
+                    conduct: null,
+                    feedback: null,
+                    feedbackDate: null,
+                    notes: notes,
+                    weeklyEmoji: weeklyEmoji
+                };
+            }
         });
+
+        // Fetch current weekly emoji from app_config
+        try {
+            const { data: emojiData, error: emojiError } = await supabaseClient
+                .from('app_config')
+                .select('value')
+                .eq('key', 'current_weekly_emoji')
+                .single();
+            if (emojiError && emojiError.code !== 'PGRST116') throw emojiError;
+            state.currentWeeklyEmoji = (emojiData && emojiData.value) ? emojiData.value : null;
+        } catch (e) {
+            console.warn("Error cargando emoji semanal:", e.message);
+            state.currentWeeklyEmoji = null;
+        }
 
         // 2. Fetch tasks
         const { data: tasksData, error: tasksError } = await supabaseClient
@@ -503,21 +545,60 @@ async function navigateToTab(tabId) {
                 const { data } = await supabaseClient.from('records').select('*');
                 if (data) {
                     state.records = data.map(r => {
-                        const parsed = r.type === 'record' ? parseThoughtAndSituation(r.thought) : { thought: r.thought, situation: "" };
-                        return {
-                            id: r.id,
-                            type: r.type,
-                            date: r.date,
-                            thought: parsed.thought,
-                            situation: parsed.situation,
-                            emotions: r.emotions,
-                            intensity: r.intensity,
-                            conduct: r.conduct,
-                            feedback: r.feedback,
-                            feedbackDate: r.feedback_date,
-                            notes: r.type === 'consultation' ? r.thought : null
-                        };
+                        if (r.type === 'record') {
+                            const parsed = parseThoughtAndSituation(r.thought);
+                            return {
+                                id: r.id,
+                                type: r.type,
+                                date: r.date,
+                                thought: parsed.thought,
+                                situation: parsed.situation,
+                                emotions: r.emotions,
+                                intensity: r.intensity,
+                                conduct: r.conduct,
+                                feedback: r.feedback,
+                                feedbackDate: r.feedback_date,
+                                notes: null,
+                                weeklyEmoji: null
+                            };
+                        } else {
+                            let notes = r.thought;
+                            let weeklyEmoji = null;
+                            if (r.thought && r.thought.trim().startsWith('{')) {
+                                try {
+                                    const parsed = JSON.parse(r.thought);
+                                    notes = parsed.notes || "";
+                                    weeklyEmoji = parsed.weeklyEmoji || null;
+                                } catch (e) {}
+                            }
+                            return {
+                                id: r.id,
+                                type: r.type,
+                                date: r.date,
+                                thought: null,
+                                situation: null,
+                                emotions: null,
+                                intensity: null,
+                                conduct: null,
+                                feedback: null,
+                                feedbackDate: null,
+                                notes: notes,
+                                weeklyEmoji: weeklyEmoji
+                            };
+                        }
                     });
+                }
+                
+                // Fetch current weekly emoji from app_config
+                try {
+                    const { data: emojiData } = await supabaseClient
+                        .from('app_config')
+                        .select('value')
+                        .eq('key', 'current_weekly_emoji')
+                        .single();
+                    state.currentWeeklyEmoji = (emojiData && emojiData.value) ? emojiData.value : null;
+                } catch (e) {
+                    state.currentWeeklyEmoji = null;
                 }
             }
             if (tabId === 'paul-tasks' || tabId === 'emily-assign-task' || tabId === 'paul-dashboard' || tabId === 'emily-dashboard') {
@@ -548,6 +629,7 @@ async function navigateToTab(tabId) {
     if (tabId === 'paul-dashboard') {
         await syncTodayActivities();
         renderPaulDashboard();
+        renderWeeklyEmojiSelector();
     } else if (tabId === 'paul-history') {
         renderPaulHistory();
     } else if (tabId === 'paul-new-record') {
@@ -564,6 +646,7 @@ async function navigateToTab(tabId) {
     } else if (tabId === 'emily-dashboard') {
         await syncEmilyRecentActivities();
         renderEmilyDashboard();
+        renderEmilyWeeklyEmoji();
     } else if (tabId === 'emily-records') {
         renderEmilyRecords();
     } else if (tabId === 'emily-assign-task') {
@@ -821,13 +904,20 @@ async function saveConsultation(e) {
 
     const dateVal = document.getElementById("consultation-date").value;
     const notesVal = document.getElementById("consultation-notes").value;
+    const currentEmoji = state.currentWeeklyEmoji || null;
 
     const newConsultation = {
         id: "con-" + Date.now(),
         type: "consultation",
         date: dateVal,
-        notes: notesVal
+        notes: notesVal,
+        weeklyEmoji: currentEmoji
     };
+
+    const serializedConsultation = JSON.stringify({
+        notes: notesVal,
+        weeklyEmoji: currentEmoji
+    });
 
     if (supabaseClient) {
         try {
@@ -837,22 +927,34 @@ async function saveConsultation(e) {
                     id: newConsultation.id,
                     type: newConsultation.type,
                     date: newConsultation.date,
-                    thought: newConsultation.notes
+                    thought: serializedConsultation
                 }]);
 
             if (error) throw error;
+
+            // Reset current weekly emoji on Supabase for the next period
+            const { error: resetError } = await supabaseClient
+                .from('app_config')
+                .upsert([{ key: 'current_weekly_emoji', value: "", updated_at: new Date().toISOString() }]);
+            if (resetError) throw resetError;
+
         } catch (err) {
             console.error("Error guardando consulta en Supabase:", err);
             alert("No se pudo guardar la consulta en la nube.");
         }
     }
 
+    // Reset local state emoji
+    state.currentWeeklyEmoji = null;
+
     state.records.push(newConsultation);
     closeConsultationModal();
     if (state.activeRole === 'paul') {
         renderPaulDashboard();
+        renderWeeklyEmojiSelector();
     } else {
         renderEmilyDashboard();
+        renderEmilyWeeklyEmoji();
     }
 }
 
@@ -1077,6 +1179,7 @@ function renderPaulHistory(filteredRecords = null) {
                         <span class="record-title-badge consultation-badge"><i data-lucide="calendar-heart"></i> Consulta Psicológica</span>
                         <span class="record-date-str">${formatDateTimeString(item.date)}</span>
                     </div>
+                    ${item.weeklyEmoji ? `<span class="session-emoji-badge" title="Emoji de esta semana de consulta">Semana: <span style="font-size: 1.15rem; vertical-align: middle;">${item.weeklyEmoji}</span></span>` : ''}
                 </div>
                 <div class="record-card-body">
                     <div class="clinical-notes-box" style="border-color: rgba(244,63,94,0.2); background: rgba(244,63,94,0.02)">
@@ -1434,6 +1537,7 @@ function renderEmilyRecords(filteredRecords = null) {
                         <span class="record-title-badge consultation-badge"><i data-lucide="calendar-heart"></i> Consulta Psicológica</span>
                         <span class="record-date-str">${formatDateTimeString(item.date)}</span>
                     </div>
+                    ${item.weeklyEmoji ? `<span class="session-emoji-badge" title="Emoji de esta semana de consulta">Semana: <span style="font-size: 1.15rem; vertical-align: middle;">${item.weeklyEmoji}</span></span>` : ''}
                 </div>
                 <div class="record-card-body">
                     <div class="clinical-notes-box" style="border-color: rgba(244,63,94,0.2); background: rgba(244,63,94,0.02)">
@@ -2159,3 +2263,104 @@ window.toggleOtherEmotionInput = function(checkbox) {
         }
     }
 };
+
+// --- WEEKLY EMOJI FUNCTIONS ---
+
+const AVAILABLE_WEEKLY_EMOJIS = ["😊", "😔", "😡", "😨", "😴", "🧠", "🩹", "🔋", "🌪️", "🧘"];
+
+function renderWeeklyEmojiSelector() {
+    const container = document.getElementById("weekly-emoji-container");
+    if (!container) return;
+
+    if (state.currentWeeklyEmoji) {
+        // Render giant selected emoji
+        container.innerHTML = `
+            <h3><i data-lucide="sparkles" class="header-icon text-indigo"></i> Tu Emoji de la Semana</h3>
+            <p>Tu estado de ánimo predominante en este período:</p>
+            <div>
+                <span class="emoji-giant-display">${state.currentWeeklyEmoji}</span>
+            </div>
+            <button class="btn btn-secondary btn-sm" onclick="resetWeeklyEmojiSelection()" style="margin-top: 0.5rem; padding: 0.4rem 1rem; font-size: 0.8rem; border-radius: var(--radius-sm);">
+                <i data-lucide="refresh-cw"></i> Cambiar de Emoji
+            </button>
+        `;
+    } else {
+        // Render grid selector
+        let emojiButtons = "";
+        AVAILABLE_WEEKLY_EMOJIS.forEach(emoji => {
+            emojiButtons += `<button class="emoji-select-btn" onclick="selectWeeklyEmoji('${emoji}')">${emoji}</button>`;
+        });
+
+        container.innerHTML = `
+            <h3><i data-lucide="smile" class="header-icon text-indigo"></i> Emoji de la Semana</h3>
+            <p>Elige el emoji que mejor describa cómo te has sentido esta semana:</p>
+            <div class="emoji-picker-grid">
+                ${emojiButtons}
+            </div>
+        `;
+    }
+    lucide.createIcons();
+}
+
+async function selectWeeklyEmoji(emoji) {
+    state.currentWeeklyEmoji = emoji;
+    renderWeeklyEmojiSelector();
+
+    if (supabaseClient) {
+        try {
+            const { error } = await supabaseClient
+                .from('app_config')
+                .upsert([{ key: 'current_weekly_emoji', value: emoji, updated_at: new Date().toISOString() }]);
+
+            if (error) throw error;
+        } catch (err) {
+            console.error("Error guardando emoji de la semana:", err);
+        }
+    }
+}
+
+async function resetWeeklyEmojiSelection() {
+    state.currentWeeklyEmoji = null;
+    renderWeeklyEmojiSelector();
+
+    if (supabaseClient) {
+        try {
+            const { error } = await supabaseClient
+                .from('app_config')
+                .upsert([{ key: 'current_weekly_emoji', value: "", updated_at: new Date().toISOString() }]);
+
+            if (error) throw error;
+        } catch (err) {
+            console.error("Error reseteando emoji de la semana:", err);
+        }
+    }
+}
+
+function renderEmilyWeeklyEmoji() {
+    const container = document.getElementById("emily-weekly-emoji-container");
+    if (!container) return;
+
+    if (state.currentWeeklyEmoji) {
+        container.style.display = "block";
+        container.innerHTML = `
+            <h3><i data-lucide="sparkles" class="header-icon text-teal"></i> Emoji de la Semana de Paul</h3>
+            <p>Estado de ánimo predominante en el período actual:</p>
+            <div>
+                <span class="emoji-giant-display">${state.currentWeeklyEmoji}</span>
+            </div>
+            <div class="emoji-status-text">
+                Paul se siente predominantemente de esta forma esta semana.
+            </div>
+        `;
+    } else {
+        container.style.display = "none";
+        container.innerHTML = "";
+    }
+    lucide.createIcons();
+}
+
+// Make functions globally accessible so inline event handlers work
+window.selectWeeklyEmoji = selectWeeklyEmoji;
+window.resetWeeklyEmojiSelection = resetWeeklyEmojiSelection;
+window.renderWeeklyEmojiSelector = renderWeeklyEmojiSelector;
+window.renderEmilyWeeklyEmoji = renderEmilyWeeklyEmoji;
