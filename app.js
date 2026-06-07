@@ -37,10 +37,26 @@ document.addEventListener("DOMContentLoaded", async () => {
     if (!isSupabaseConfigured) {
         showConfigWarning();
     }
-    // Check if Emily is authenticated in sessionStorage
+
+    const roleSelected = sessionStorage.getItem("mindreg_role_selected");
     const isEmilyLogged = sessionStorage.getItem("mindreg_emily_logged_in") === "true";
-    state.activeRole = isEmilyLogged ? 'emily' : 'paul';
-    state.activeTab = isEmilyLogged ? 'emily-dashboard' : 'paul-dashboard';
+    const roleSelector = document.getElementById("modal-role-selector");
+
+    if (!roleSelected || (roleSelected === 'emily' && !isEmilyLogged)) {
+        // Show role selection screen
+        if (roleSelector) {
+            roleSelector.classList.add("active");
+        }
+        state.activeRole = 'paul'; // default safe role
+        state.activeTab = 'paul-dashboard';
+    } else {
+        // Hide role selection screen
+        if (roleSelector) {
+            roleSelector.classList.remove("active");
+        }
+        state.activeRole = roleSelected;
+        state.activeTab = roleSelected === 'emily' ? 'emily-dashboard' : 'paul-dashboard';
+    }
 
     await initDatabase();
     setDefaultDateInput();
@@ -257,8 +273,8 @@ function renderAuthBar() {
             <span class="user-display-name" style="font-family: var(--font-heading); font-weight: 600; font-size: 0.95rem; color: var(--text-primary); display: flex; align-items: center; gap: 0.5rem;">
                 <i data-lucide="user" style="width: 1.1rem; height: 1.1rem; color: var(--color-patient);"></i> Paul (Paciente) 🐢
             </span>
-            <button id="btn-login-emily" class="btn btn-secondary btn-sm" onclick="showTherapistAuthModal()" style="padding: 0.4rem 0.85rem; font-size: 0.8rem; border-radius: var(--radius-sm);">
-                <i data-lucide="lock" style="width: 0.9rem; height: 0.9rem; vertical-align: text-bottom; margin-right: 0.25rem;"></i> Acceso Psicóloga
+            <button id="btn-logout-paul" class="btn btn-secondary btn-sm" onclick="logoutPaul()" style="padding: 0.4rem 0.85rem; font-size: 0.8rem; border-radius: var(--radius-sm);">
+                <i data-lucide="log-out" style="width: 0.9rem; height: 0.9rem; vertical-align: text-bottom; margin-right: 0.25rem;"></i> Salir / Cambiar Rol
             </button>
         `;
     } else {
@@ -267,7 +283,7 @@ function renderAuthBar() {
                 <i data-lucide="shield-check" style="width: 1.1rem; height: 1.1rem; color: var(--color-psy);"></i> Psic. Emily
             </span>
             <button id="btn-logout-emily" class="btn btn-secondary btn-sm" onclick="logoutEmily()" style="padding: 0.4rem 0.85rem; font-size: 0.8rem; border-radius: var(--radius-sm); border-color: rgba(13, 148, 136, 0.25); color: var(--color-psy);">
-                <i data-lucide="log-out" style="width: 0.9rem; height: 0.9rem; vertical-align: text-bottom; margin-right: 0.25rem;"></i> Cerrar Sesión
+                <i data-lucide="log-out" style="width: 0.9rem; height: 0.9rem; vertical-align: text-bottom; margin-right: 0.25rem;"></i> Salir / Cambiar Rol
             </button>
         `;
     }
@@ -414,13 +430,47 @@ async function handleTherapistAuth(e) {
 
     // Auth success: login and switch role
     sessionStorage.setItem("mindreg_emily_logged_in", "true");
+    sessionStorage.setItem("mindreg_role_selected", "emily");
+    
     closeTherapistAuthModal();
+    
+    const roleSelector = document.getElementById("modal-role-selector");
+    if (roleSelector) {
+        roleSelector.classList.remove("active");
+    }
+    
     switchRole('emily');
+}
+
+// Landing Selector Role Selection Action
+async function selectRoleFromLanding(role) {
+    if (role === 'paul') {
+        sessionStorage.setItem("mindreg_role_selected", "paul");
+        state.activeRole = 'paul';
+        state.activeTab = 'paul-dashboard';
+        
+        const roleSelector = document.getElementById("modal-role-selector");
+        if (roleSelector) {
+            roleSelector.classList.remove("active");
+        }
+        
+        updateThemeClass();
+        renderNavigation();
+        navigateToTab('paul-dashboard');
+    } else if (role === 'emily') {
+        showTherapistAuthModal();
+    }
+}
+
+function logoutPaul() {
+    sessionStorage.removeItem("mindreg_role_selected");
+    location.reload();
 }
 
 function logoutEmily() {
     sessionStorage.removeItem("mindreg_emily_logged_in");
-    switchRole('paul');
+    sessionStorage.removeItem("mindreg_role_selected");
+    location.reload();
 }
 
 // Modals management for password changing

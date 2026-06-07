@@ -687,6 +687,39 @@
         </div>
     </div>
 
+    <!-- ROLE SELECTOR LANDING SCREEN -->
+    <div id="modal-role-selector" class="modal-overlay">
+        <div class="modal-content role-selector-container">
+            <div class="role-selector-header">
+                <i data-lucide="brain" class="logo-icon-large"></i>
+                <h1>MindReg</h1>
+                <p>Autorregistro Emocional & Supervisión Terapéutica</p>
+            </div>
+            
+            <h2>¿Quién está ingresando al sistema?</h2>
+            
+            <div class="role-cards-grid">
+                <!-- Paciente (Paul) Card -->
+                <div class="role-card paul-card" onclick="selectRoleFromLanding('paul')">
+                    <div class="role-card-glow"></div>
+                    <i data-lucide="user" class="role-card-icon"></i>
+                    <h3>Paul</h3>
+                    <span class="role-label">Paciente</span>
+                    <p>Registrar mi estado emocional diario y realizar tareas asignadas.</p>
+                </div>
+                
+                <!-- Psicóloga (Emily) Card -->
+                <div class="role-card emily-card" onclick="selectRoleFromLanding('emily')">
+                    <div class="role-card-glow"></div>
+                    <i data-lucide="shield-check" class="role-card-icon"></i>
+                    <h3>Psic. Emily</h3>
+                    <span class="role-label">Terapeuta</span>
+                    <p>Revisar la evolución clínica de Paul, dejar comentarios y asignar tareas.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Supabase CDN JS Library -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <!-- Custom Script -->
