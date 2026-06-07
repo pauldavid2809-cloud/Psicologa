@@ -1475,6 +1475,28 @@ function renderEmilyTasksPanel() {
             `;
         }
 
+        let actionsHTML = "";
+        if (task.completed) {
+            actionsHTML = `
+                <div style="display: flex; gap: 0.5rem; margin-top: 0.75rem; justify-content: flex-end;">
+                    <button onclick="resetTask('${task.id}')" class="btn btn-secondary btn-sm" style="padding: 0.35rem 0.65rem; font-size: 0.75rem; display: inline-flex; align-items: center; gap: 0.25rem;">
+                        <i data-lucide="refresh-cw" style="width: 0.8rem; height: 0.8rem;"></i> Restablecer
+                    </button>
+                    <button onclick="deleteTask('${task.id}')" class="btn btn-text text-red btn-sm" style="padding: 0.35rem 0.65rem; font-size: 0.75rem; display: inline-flex; align-items: center; gap: 0.25rem;">
+                        <i data-lucide="trash-2" style="width: 0.8rem; height: 0.8rem;"></i> Eliminar
+                    </button>
+                </div>
+            `;
+        } else {
+            actionsHTML = `
+                <div style="display: flex; gap: 0.5rem; margin-top: 0.75rem; justify-content: flex-end;">
+                    <button onclick="deleteTask('${task.id}')" class="btn btn-text text-red btn-sm" style="padding: 0.35rem 0.65rem; font-size: 0.75rem; display: inline-flex; align-items: center; gap: 0.25rem;">
+                        <i data-lucide="trash-2" style="width: 0.8rem; height: 0.8rem;"></i> Eliminar
+                    </button>
+                </div>
+            `;
+        }
+
         row.innerHTML = `
             <div class="assigned-task-row-header">
                 <div>
@@ -1485,6 +1507,7 @@ function renderEmilyTasksPanel() {
             </div>
             <p style="font-size: 0.85rem; color: var(--text-secondary); line-height: 1.4;">${task.desc}</p>
             ${submissionHTML}
+            ${actionsHTML}
         `;
 
         container.appendChild(row);
@@ -2458,4 +2481,79 @@ async function deleteRecord(id) {
     }
 }
 
+async function deleteTask(id) {
+    if (!confirm("¿Estás seguro de que deseas eliminar esta tarea? Se borrará permanentemente de la nube.")) {
+        return;
+    }
+    
+    state.tasks = state.tasks.filter(t => t.id !== id);
+    
+    renderEmilyTasksPanel();
+    if (state.activeRole === 'paul') {
+        renderPaulTasks();
+        renderPaulDashboard();
+    } else {
+        renderEmilyDashboard();
+    }
+
+    if (supabaseClient) {
+        try {
+            const { error } = await supabaseClient
+                .from('tasks')
+                .delete()
+                .eq('id', id);
+
+            if (error) throw error;
+        } catch (err) {
+            console.error("Error al eliminar la tarea de Supabase:", err);
+            alert("No se pudo eliminar la tarea de la nube.");
+        }
+    }
+}
+
+async function resetTask(id) {
+    if (!confirm("¿Estás seguro de que deseas restablecer esta tarea? Se marcará como pendiente y se borrará la respuesta de Paul.")) {
+        return;
+    }
+
+    const taskIndex = state.tasks.findIndex(t => t.id === id);
+    if (taskIndex !== -1) {
+        state.tasks[taskIndex].completed = false;
+        state.tasks[taskIndex].reply = null;
+        state.tasks[taskIndex].completedDate = null;
+        state.tasks[taskIndex].file = null;
+    }
+
+    renderEmilyTasksPanel();
+    if (state.activeRole === 'paul') {
+        renderPaulTasks();
+        renderPaulDashboard();
+    } else {
+        renderEmilyDashboard();
+    }
+
+    if (supabaseClient) {
+        try {
+            const { error } = await supabaseClient
+                .from('tasks')
+                .update({
+                    completed: false,
+                    reply: null,
+                    completed_date: null,
+                    file_url: null,
+                    file_name: null,
+                    file_size: null
+                })
+                .eq('id', id);
+
+            if (error) throw error;
+        } catch (err) {
+            console.error("Error al restablecer la tarea en Supabase:", err);
+            alert("No se pudo restablecer la tarea en la nube.");
+        }
+    }
+}
+
 window.deleteRecord = deleteRecord;
+window.deleteTask = deleteTask;
+window.resetTask = resetTask;
