@@ -1145,7 +1145,12 @@ function renderPaulHistory(filteredRecords = null) {
                         <span class="record-title-badge record-badge"><i data-lucide="clipboard-signature"></i> Autorregistro</span>
                         <span class="record-date-str">${formatDateTimeString(item.date)}</span>
                     </div>
-                    <span class="record-intensity-badge ${intensityClass}">Intensidad: ${item.intensity}%</span>
+                    <div style="display: flex; align-items: center; gap: 0.75rem;">
+                        <span class="record-intensity-badge ${intensityClass}">Intensidad: ${item.intensity}%</span>
+                        <button onclick="deleteRecord('${item.id}')" class="btn btn-text text-red" style="padding: 0.25rem; background: transparent; border: none; cursor: pointer;" title="Eliminar registro">
+                            <i data-lucide="trash-2" style="width: 0.95rem; height: 0.95rem; color: #ef4444;"></i>
+                        </button>
+                    </div>
                 </div>
                 <div class="record-card-body">
                     ${item.situation ? `
@@ -1537,7 +1542,12 @@ function renderEmilyRecords(filteredRecords = null) {
                         <span class="record-title-badge consultation-badge"><i data-lucide="calendar-heart"></i> Consulta Psicológica</span>
                         <span class="record-date-str">${formatDateTimeString(item.date)}</span>
                     </div>
-                    ${item.weeklyEmoji ? `<span class="session-emoji-badge" title="Emoji de esta semana de consulta">Semana: <span style="font-size: 1.15rem; vertical-align: middle;">${item.weeklyEmoji}</span></span>` : ''}
+                    <div style="display: flex; align-items: center; gap: 0.75rem;">
+                        ${item.weeklyEmoji ? `<span class="session-emoji-badge" title="Emoji de esta semana de consulta">Semana: <span style="font-size: 1.15rem; vertical-align: middle;">${item.weeklyEmoji}</span></span>` : ''}
+                        <button onclick="deleteRecord('${item.id}')" class="btn btn-text text-red" style="padding: 0.25rem; background: transparent; border: none; cursor: pointer;" title="Eliminar consulta">
+                            <i data-lucide="trash-2" style="width: 0.95rem; height: 0.95rem; color: #ef4444;"></i>
+                        </button>
+                    </div>
                 </div>
                 <div class="record-card-body">
                     <div class="clinical-notes-box" style="border-color: rgba(244,63,94,0.2); background: rgba(244,63,94,0.02)">
@@ -2364,3 +2374,38 @@ window.selectWeeklyEmoji = selectWeeklyEmoji;
 window.resetWeeklyEmojiSelection = resetWeeklyEmojiSelection;
 window.renderWeeklyEmojiSelector = renderWeeklyEmojiSelector;
 window.renderEmilyWeeklyEmoji = renderEmilyWeeklyEmoji;
+
+async function deleteRecord(id) {
+    if (!confirm("¿Estás seguro de que deseas eliminar este registro? Esta acción no se puede deshacer y se borrará permanentemente de la nube.")) {
+        return;
+    }
+    
+    // Eliminar del estado local
+    state.records = state.records.filter(r => r.id !== id);
+    
+    // Renderizar la vista activa para ver el cambio de inmediato
+    if (state.activeRole === 'paul') {
+        renderPaulHistory();
+        renderPaulDashboard();
+    } else {
+        renderEmilyRecords();
+        renderEmilyDashboard();
+    }
+
+    // Eliminar de Supabase
+    if (supabaseClient) {
+        try {
+            const { error } = await supabaseClient
+                .from('records')
+                .delete()
+                .eq('id', id);
+
+            if (error) throw error;
+        } catch (err) {
+            console.error("Error al eliminar el registro de Supabase:", err);
+            alert("No se pudo eliminar el registro de la nube.");
+        }
+    }
+}
+
+window.deleteRecord = deleteRecord;
