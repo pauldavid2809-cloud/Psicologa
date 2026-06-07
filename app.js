@@ -1631,10 +1631,16 @@ function renderChart(canvasId, role) {
                     callbacks: {
                         label: function(context) {
                             const datasetIndex = context.datasetIndex;
+                            const dataIndex = context.dataIndex;
+                            const item = chronologicalItems[dataIndex];
                             if (datasetIndex === 0) {
-                                return ` Intensidad: ${context.parsed.y}%`;
+                                let lines = [` Intensidad: ${context.parsed.y}%`];
+                                if (item && item.emotions && item.emotions.length > 0) {
+                                    lines.push(` Emociones: ${item.emotions.join(', ')}`);
+                                }
+                                return lines;
                             } else {
-                                const rawPoint = context.dataset.data[context.dataIndex];
+                                const rawPoint = context.dataset.data[dataIndex];
                                 return [
                                     ` [CONSULTA PSICOLÓGICA]`,
                                     ` Nota: ${rawPoint.notes ? rawPoint.notes.substring(0, 30) + '...' : 'Sin notas'}`
